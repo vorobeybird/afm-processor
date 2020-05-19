@@ -17,15 +17,19 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from skimage.filters import median
 from skimage.io import imread, imsave
 from skimage.morphology import disk
+import skimage.metrics
 from skimage import  img_as_ubyte, img_as_float
 image_path = "C:\\Users\\Admin\\Desktop\\GUI\\afm_processor\\images\\"
 
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
+        '''Define path and names for color/grayscale original/preproceed image for convinient use'''
         self.fileName = None
         self.image = None
         self.color_image = None
+        self.imname = None
+
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1100, 779)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
@@ -132,6 +136,8 @@ class Ui_MainWindow(object):
         self.FreqFiltrationButton.clicked.connect(self.use_Furier)
         self.ImageLevelingButton.clicked.connect(self.plot_substraction)
         self.AddSharpnessButton.clicked.connect(self.add_sharpness)
+        self.SSIMbutton.clicked.connect(self.SSIM_evaluation)
+        self.PsnrButton.clicked.connect(self.PSNR_evaluation)
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
@@ -154,7 +160,7 @@ class Ui_MainWindow(object):
         self.ContrastButton.setText(_translate("MainWindow", "Оценка контраста "))
         self.LightSharpnessButton.setText(_translate("MainWindow", "Оценка яркости и резкости"))
 
-    def setImage(self):
+    def setImage(self,):
         self.fileName, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Select Image", "", "Image Files (*.png *.jpg *jpeg *.bmp)")
         print(self.fileName)
         if self.fileName: 
@@ -165,30 +171,30 @@ class Ui_MainWindow(object):
             self.image = copy(imread(self.fileName,as_gray=True))
             self.color_image = copy(cv2.imread(self.fileName,0))
 
-    def median_blur(self):
+    def median_blur(self,):
         blur_img = median(self.image,disk(5))
         imname = 'median.png'
         imsave(f'{image_path}{imname}',blur_img)
         self.show_image(imname)
     
-    def add_light_sourse(self):
+    def add_light_sourse(self,):
         new_image = self.light_sourse(self.image)
-        imname = 'light.png'
-        imsave(f'{image_path}{imname}',new_image)
-        self.show_image(imname)
+        self.imname = 'light.png'
+        imsave(f'{image_path}{self.imname}',new_image)
+        self.show_image(self.imname)
     
-    def light_sourse(self, image, cmap='gray', ve=10):
+    def light_sourse(self, image, cmap='gray', ve=10,):
         ls = matplotlib.colors.LightSource(azdeg=350, altdeg=30)
         return ls.hillshade(image, vert_exag=ve)
 
-    def show_image(self,image_name):
+    def show_image(self,image_name,):
         image = image_path + image_name
         pixmap = QtGui.QPixmap(image)
         pixmap = pixmap.scaled(self.labelProcessed.width(), self.labelProcessed.height(), QtCore.Qt.KeepAspectRatio,QtCore.Qt.FastTransformation)
         self.labelProcessed.setPixmap(pixmap)
         self.labelProcessed.setAlignment(QtCore.Qt.AlignCenter)
 
-    def distance(self,point1,point2):
+    def distance(self,point1,point2,):
         return sqrt((point1[0]-point2[0])**2 + (point1[1]-point2[1])**2)
 
     def Fourier_filterLP(self,D0,imgShape):
@@ -208,24 +214,36 @@ class Ui_MainWindow(object):
         low_pass_center = centralized_spectrum * self.Fourier_filterLP(80,shape)
         low_pass = np.fft.ifftshift(low_pass_center)
         filtered_image = np.fft.ifft2(low_pass)
-        imname = 'fft_filter.png'
-        plt.imsave(f'{image_path}{imname}',np.abs(filtered_image),cmap='gray')
-        self.show_image(imname)
+        self.imname = 'fft_filter.png'
+        plt.imsave(f'{image_path}{self.imname}',np.abs(filtered_image),cmap='gray')
+        self.show_image(self.imname)
 
     def plot_substraction(self,):
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
         cl1 = clahe.apply(self.color_image)
-        imname = 'plot_sbstr.png'
-        plt.imsave(f'{image_path}{imname}',cl1,cmap='gray')
-        self.show_image(imname)
+        self.imname = 'plot_sbstr.png'
+        plt.imsave(f'{image_path}{self.imname}',cl1,cmap='gray')
+        self.show_image(self.imname)
 
     def add_sharpness(self,):
         image = Image.fromarray(self.color_image.astype('uint8'))
         new_image = image.filter(ImageFilter.UnsharpMask(radius=2, percent=100))
         f_image = img_as_float(new_image)
-        imname = 'sharpness.png'
-        imsave(f'{image_path}{imname}',f_image)
-        self.show_image(imname)
+        self.imname = 'sharpness.png'
+        imsave(f'{image_path}{self.imname}',f_image)
+        self.show_image(self.imname)
+
+    def SSIM_evaluation(self,):
+        origin_img = cv2.imread(self.fileName,0)
+        proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
+        answer = skimage.metrics.structural_similarity(origin_img,proceed_img)
+        self.listWidget.addItem(f"Значение метода структурного подобия равно {answer}")
+
+    def PSNR_evaluation(self,):
+        origin_img = cv2.imread(self.fileName,0)
+        proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
+        answer = skimage.metrics.peak_signal_noise_ratio(origin_img,proceed_img)
+        self.listWidget.addItem(f"Отношение сигнал-шум равно  {answer}")
 
 if __name__ == "__main__":
     import sys

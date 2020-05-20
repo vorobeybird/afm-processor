@@ -7,6 +7,7 @@
 # WARNING! All changes made in this file will be lost!
 import matplotlib
 import cv2
+import vif
 import numpy as np
 import matplotlib.pyplot as plt
 from math import sqrt,exp
@@ -95,18 +96,21 @@ class Ui_MainWindow(object):
         self.SSIMbutton.setGeometry(QtCore.QRect(0, 120, 141, 51))
         self.SSIMbutton.setObjectName("SSIMbutton")
 
-        self.MeanDiffButton = QtWidgets.QPushButton(self.groupBox_2)
-        self.MeanDiffButton.setGeometry(QtCore.QRect(0, 170, 141, 51))
-        self.MeanDiffButton.setObjectName("MeanDiffButton")
+        self.MaxDiffButton = QtWidgets.QPushButton(self.groupBox_2)
+        self.MaxDiffButton.setGeometry(QtCore.QRect(0, 170, 141, 51))
+        self.MaxDiffButton.setObjectName("MaxDiffButton")
 
-        self.MaximumDiffButton = QtWidgets.QPushButton(self.groupBox_2)
-        self.MaximumDiffButton.setGeometry(QtCore.QRect(0, 220, 141, 51))
-        self.MaximumDiffButton.setObjectName("MaximumDiffButton")
+        self.VifButton = QtWidgets.QPushButton(self.groupBox_2)
+        self.VifButton.setGeometry(QtCore.QRect(0, 220, 141, 51))
+        self.VifButton.setObjectName("VifButton")
 
         self.groupBox_3 = QtWidgets.QGroupBox(self.centralwidget)
         self.groupBox_3.setGeometry(QtCore.QRect(190, 460, 141, 171))
         self.groupBox_3.setObjectName("groupBox_3")
 
+        self.referenceButton = QtWidgets.QPushButton(self.centralwidget)
+        self.referenceButton.setGeometry(QtCore.QRect(31, 730, 91, 21))
+        
         self.SharpnessButton = QtWidgets.QPushButton(self.groupBox_3)
         self.SharpnessButton.setGeometry(QtCore.QRect(0, 10, 141, 61))
         self.SharpnessButton.setObjectName("SharpnessButton")
@@ -138,12 +142,16 @@ class Ui_MainWindow(object):
         self.AddSharpnessButton.clicked.connect(self.add_sharpness)
         self.SSIMbutton.clicked.connect(self.SSIM_evaluation)
         self.PsnrButton.clicked.connect(self.PSNR_evaluation)
+        self.referenceButton.clicked.connect(self.setReferenceImage)
+        self.VifButton.clicked.connect(self.vif_evaluation)
+        self.MinkovskyButton.clicked.connect(self.minkovsky_norm)
+        self.MaxDiffButton.clicked.connect(self.absolute_difference)
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.SearchButton.setText(_translate("MainWindow", "Поиск "))
-        self.groupBox.setTitle(_translate("MainWindow", "GroupBox"))
+        self.groupBox.setTitle(_translate("MainWindow", "Блок предобработки"))
         self.FreqFiltrationButton.setText(_translate("MainWindow", "Частотная фильтрация "))
         self.MedianBlurButton.setText(_translate("MainWindow", "Медианная фильтрация"))
         self.ImageLevelingButton.setText(_translate("MainWindow", "Вычитание подложки"))
@@ -153,12 +161,13 @@ class Ui_MainWindow(object):
         self.PsnrButton.setText(_translate("MainWindow", "ПОСШ"))
         self.MinkovskyButton.setText(_translate("MainWindow", "Норма Минковского"))
         self.SSIMbutton.setText(_translate("MainWindow", "SSIM"))
-        self.MeanDiffButton.setText(_translate("MainWindow", "Средняя разность"))
-        self.MaximumDiffButton.setText(_translate("MainWindow", "Максимальная разность"))
+        self.MaxDiffButton.setText(_translate("MainWindow", "Абсолютная разность"))
+        self.VifButton.setText(_translate("MainWindow", "VIF"))
         self.groupBox_3.setTitle(_translate("MainWindow", "Безэталонная оценка"))
         self.SharpnessButton.setText(_translate("MainWindow", "Оценка резкости"))
         self.ContrastButton.setText(_translate("MainWindow", "Оценка контраста "))
         self.LightSharpnessButton.setText(_translate("MainWindow", "Оценка яркости и резкости"))
+        self.referenceButton.setText(_translate("MainWindow", "Выбрать эталон"))
 
     def setImage(self,):
         self.fileName, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Select Image", "", "Image Files (*.png *.jpg *jpeg *.bmp)")
@@ -171,8 +180,11 @@ class Ui_MainWindow(object):
             self.image = copy(imread(self.fileName,as_gray=True))
             self.color_image = copy(cv2.imread(self.fileName,0))
 
+    def setReferenceImage(self,):
+        self.reference, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Select Image", "", "Image Files (*.png *.jpg *jpeg *.bmp)")
+
     def median_blur(self,):
-        blur_img = median(self.image,disk(5))
+        blur_img = median(self.image,disk(1))
         imname = 'median.png'
         imsave(f'{image_path}{imname}',blur_img)
         self.show_image(imname)
@@ -232,18 +244,56 @@ class Ui_MainWindow(object):
         self.imname = 'sharpness.png'
         imsave(f'{image_path}{self.imname}',f_image)
         self.show_image(self.imname)
+    
+    #Quality assessement methods
+    def image_reader(self,):
+        origin_img = cv2.imread(self.fileName,0)
+        proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
+        if self.reference:
+            reference_img = cv2.imread(self.reference,0)
+            image_list = [origin_img,proceed_img,reference_img]
+        else:
+            image_list = [origin_img,proceed_img,reference_img]
+        return image_list
 
     def SSIM_evaluation(self,):
-        origin_img = cv2.imread(self.fileName,0)
-        proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
-        answer = skimage.metrics.structural_similarity(origin_img,proceed_img)
-        self.listWidget.addItem(f"Значение метода структурного подобия равно {answer}")
+        images = self.image_reader()
+        answer_origin  = skimage.metrics.structural_similarity(images[2],images[0])
+        answer_proceed = skimage.metrics.structural_similarity(images[2],images[1])
+        self.listWidget.addItem(f"SSIM для оригинального изображения {answer_origin},\
+                                \nSSIM для обработанного изображения {answer_proceed}\n")
 
     def PSNR_evaluation(self,):
-        origin_img = cv2.imread(self.fileName,0)
-        proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
-        answer = skimage.metrics.peak_signal_noise_ratio(origin_img,proceed_img)
-        self.listWidget.addItem(f"Отношение сигнал-шум равно  {answer}")
+        images = self.image_reader()
+        answer_origin = skimage.metrics.peak_signal_noise_ratio(images[2],images[0])
+        answer_proceed = skimage.metrics.peak_signal_noise_ratio(images[2],images[1])
+        self.listWidget.addItem(f"PSNR для оригинального изображения {answer_origin},\
+                                \nPSNR для обработанного изображения {answer_proceed}\n")
+    
+    def vif_evaluation(self,):
+        images = self.image_reader()
+        answer_origin = vif.vifp_mscale(images[2],images[0])
+        answer_proceed = vif.vifp_mscale(images[2],images[1])
+        self.listWidget.addItem(f"VIF для оригинального изображения {answer_origin},\
+                                \nVIF для обработанного изображения {answer_proceed}\n")
+    
+    def minkovsky_norm(self,):
+        images = self.image_reader()
+        answer_origin = np.linalg.norm(images[2]-images[0])
+        answer_proceed = np.linalg.norm(images[2]-images[1])
+        self.listWidget.addItem(f"Норма Минковского для оригинального изображения {answer_origin},\
+                                \nнорма Минковского для обработанного изображения {answer_proceed}\n")
+
+    def absolute_difference(self,):
+        images = self.image_reader()
+        answer_origin = cv2.absdiff(images[2],images[0])
+        answer_proceed = cv2.absdiff(images[2],images[1])
+        answer_origin = answer_origin.astype(np.uint8)
+        answer_proceed = answer_proceed.astype(np.uint8)
+        percentage_original = (np.count_nonzero(answer_origin) * 100)/ answer_origin.size
+        percentage_proceed = (np.count_nonzero(answer_proceed) * 100)/ answer_proceed.size
+        self.listWidget.addItem(f"Максимальная разность в процентах для оригинального изображения {percentage_original},\
+                                \nмаксимальная разность для обработанного изображения {percentage_proceed}\n")
 
 if __name__ == "__main__":
     import sys

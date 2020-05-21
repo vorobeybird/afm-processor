@@ -12,8 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from math import sqrt,exp
 from copy import copy
-from PIL import Image
-from PIL import ImageFilter
+from PIL import Image, ImageStat, ImageFilter
 from PyQt5 import QtCore, QtGui, QtWidgets
 from skimage.filters import median
 from skimage.io import imread, imsave
@@ -30,6 +29,7 @@ class Ui_MainWindow(object):
         self.image = None
         self.color_image = None
         self.imname = None
+        self.reference = None
 
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1100, 779)
@@ -119,9 +119,9 @@ class Ui_MainWindow(object):
         self.ContrastButton.setGeometry(QtCore.QRect(0, 70, 141, 51))
         self.ContrastButton.setObjectName("ContrastButton")
 
-        self.LightSharpnessButton = QtWidgets.QPushButton(self.groupBox_3)
-        self.LightSharpnessButton.setGeometry(QtCore.QRect(0, 120, 141, 51))
-        self.LightSharpnessButton.setObjectName("LightSharpnessButton")
+        self.BrightnessButton = QtWidgets.QPushButton(self.groupBox_3)
+        self.BrightnessButton.setGeometry(QtCore.QRect(0, 120, 141, 51))
+        self.BrightnessButton.setObjectName("BrightnessButton")
 
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
@@ -133,6 +133,7 @@ class Ui_MainWindow(object):
         MainWindow.setStatusBar(self.statusbar)
 
         self.retranslateUi(MainWindow)
+
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
         self.SearchButton.clicked.connect(self.setImage)
         self.MedianBlurButton.clicked.connect(self.median_blur)
@@ -146,6 +147,9 @@ class Ui_MainWindow(object):
         self.VifButton.clicked.connect(self.vif_evaluation)
         self.MinkovskyButton.clicked.connect(self.minkovsky_norm)
         self.MaxDiffButton.clicked.connect(self.absolute_difference)
+        self.SharpnessButton.clicked.connect(self.sharpness_evaluation)
+        self.ContrastButton.clicked.connect(self.contrast_evaluation)
+        self.BrightnessButton.clicked.connect(self.brightness_evaluation)
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
@@ -166,8 +170,9 @@ class Ui_MainWindow(object):
         self.groupBox_3.setTitle(_translate("MainWindow", "Безэталонная оценка"))
         self.SharpnessButton.setText(_translate("MainWindow", "Оценка резкости"))
         self.ContrastButton.setText(_translate("MainWindow", "Оценка контраста "))
-        self.LightSharpnessButton.setText(_translate("MainWindow", "Оценка яркости и резкости"))
+        self.BrightnessButton.setText(_translate("MainWindow", "Оценка яркости"))
         self.referenceButton.setText(_translate("MainWindow", "Выбрать эталон"))
+
 
     def setImage(self,):
         self.fileName, _ = QtWidgets.QFileDialog.getOpenFileName(None, "Select Image", "", "Image Files (*.png *.jpg *jpeg *.bmp)")
@@ -185,14 +190,16 @@ class Ui_MainWindow(object):
 
     def median_blur(self,):
         blur_img = median(self.image,disk(1))
+        blur_img = img_as_ubyte(blur_img)
         imname = 'median.png'
         imsave(f'{image_path}{imname}',blur_img)
         self.show_image(imname)
     
     def add_light_sourse(self,):
         new_image = self.light_sourse(self.image)
+        bite_img = img_as_ubyte(new_image)
         self.imname = 'light.png'
-        imsave(f'{image_path}{self.imname}',new_image)
+        imsave(f'{image_path}{self.imname}',bite_img)
         self.show_image(self.imname)
     
     def light_sourse(self, image, cmap='gray', ve=10,):
@@ -227,7 +234,8 @@ class Ui_MainWindow(object):
         low_pass = np.fft.ifftshift(low_pass_center)
         filtered_image = np.fft.ifft2(low_pass)
         self.imname = 'fft_filter.png'
-        plt.imsave(f'{image_path}{self.imname}',np.abs(filtered_image),cmap='gray')
+        no_complex = np.abs(filtered_image)
+        plt.imsave(f'{image_path}{self.imname}',no_complex,cmap='gray')
         self.show_image(self.imname)
 
     def plot_substraction(self,):
@@ -246,6 +254,7 @@ class Ui_MainWindow(object):
         self.show_image(self.imname)
     
     #Quality assessement methods
+
     def image_reader(self,):
         origin_img = cv2.imread(self.fileName,0)
         proceed_img = cv2.imread(f"{image_path}{self.imname}",0)
@@ -253,7 +262,7 @@ class Ui_MainWindow(object):
             reference_img = cv2.imread(self.reference,0)
             image_list = [origin_img,proceed_img,reference_img]
         else:
-            image_list = [origin_img,proceed_img,reference_img]
+            image_list = [origin_img,proceed_img]
         return image_list
 
     def SSIM_evaluation(self,):
@@ -294,6 +303,36 @@ class Ui_MainWindow(object):
         percentage_proceed = (np.count_nonzero(answer_proceed) * 100)/ answer_proceed.size
         self.listWidget.addItem(f"Максимальная разность в процентах для оригинального изображения {percentage_original},\
                                 \nмаксимальная разность для обработанного изображения {percentage_proceed}\n")
+    
+    def sharpness_evaluation(self,):
+        images = self.image_reader()
+        arr_origin = np.asarray(images[0], dtype=np.int32)
+        arr_proceed = np.asarray(images[1], dtype=np.int32)
+        gy, gx = np.gradient(arr_origin)
+        py, px = np.gradient(arr_proceed)
+        gnorm1 = np.sqrt(gx**2 + gy**2)
+        gnorm2 = np.sqrt(px**2 + py**2)
+        sharpness_origin = np.average(gnorm1)
+        sharpness_proceed = np.average(gnorm2)
+        self.listWidget.addItem(f"Резкость оригинального изображения {sharpness_origin},\
+                                \nрезкость обработанного изображения {sharpness_proceed}\n")
+    
+    def contrast_evaluation(self,):
+        images = self.image_reader()
+        contrast_origin = images[0].std()
+        contrast_proceed = images[1].std()
+        self.listWidget.addItem(f"Контраст оригинального изображения {contrast_origin},\
+                                \nконтраст обработанного изображения {contrast_proceed}\n")
+
+    def brightness_evaluation(self,):
+        im1 = Image.open(self.fileName).convert('L')
+        im2 = Image.open(f"{image_path}{self.imname}").convert('L')
+        brightness_origin = ImageStat.Stat(im1)
+        brightness_proceed = ImageStat.Stat(im2)       
+        self.listWidget.addItem(f"Яркость оригинального изображения {brightness_origin.rms[0]},\
+                                \nяркость обработанного изображения {brightness_proceed.rms[0]}\n") 
+
+
 
 if __name__ == "__main__":
     import sys
